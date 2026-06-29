@@ -268,6 +268,7 @@ meraki-spreadsheet-automation/
   │   └── meraki_setup_en.gs    # English version script
   └── docs/
       ├── demo_scenario_ja.md   # Demo scenario (Japanese)
+      ├── demo_scenario_en.md   # Demo scenario (English) 
       └── api_endpoints.md      # API endpoints reference
 ```
 
