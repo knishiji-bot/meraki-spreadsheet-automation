@@ -322,6 +322,43 @@ MIT License
 
 ---
 
+## ⚠️ Disclaimer
+
+This tool is provided **"as is"** without any warranty,
+express or implied.
+
+### General
+- The developer assumes no responsibility for any damage
+  or loss resulting from the use of this tool.
+- Users are responsible for ensuring the proper
+  configuration and use of this tool.
+- Always **backup your data** before making any changes
+  to your network configuration.
+
+### Meraki API
+- This tool uses the Cisco Meraki Dashboard API.
+  Usage is subject to the
+  [Meraki API Terms of Service](https://meraki.cisco.com/support/#api).
+- API keys must be managed securely.
+  **Do not share or expose your API key** in public repositories.
+- This tool is **not officially supported by Cisco or Meraki**.
+  It is an independent community tool.
+
+### Network Impact
+- Applying configurations via this tool will make
+  **real changes to your live network**.
+- Always test in a **non-production environment** first.
+- The rollback feature restores settings from a backup,
+  but **does not guarantee full recovery** in all scenarios.
+
+### Google Spreadsheet & Apps Script
+- This tool uses Google Apps Script to interact
+  with the Meraki API.
+  Usage is subject to
+  [Google's Terms of Service](https://policies.google.com/terms).
+- Users are responsible for managing access permissions
+  to their Google Spreadsheet.
+
 ## Author
 
 Cisco Customer Experience - Customer Success Team
