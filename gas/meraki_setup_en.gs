@@ -1,7 +1,7 @@
 // ============================================================
 // Cisco Meraki Initial Setup Demo - Google Apps Script
 // MX VLAN + MS Trunk + MR SSID + RF Profile Integration
-// English Version
+// Rollback VLAN Fix - English Version
 // ============================================================
 
 // ── Constants ─────────────────────────────────────────────
@@ -298,7 +298,6 @@ function backupCurrentSettings() {
     .setFontColor('#FFFFFF')
     .setFontWeight('bold');
 
-  // ── META Info ─────────────────────────────────
   backupSheet.appendRow(['[META]', 'Backup Timestamp',
     Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'), '', '', '', '']);
   backupSheet.appendRow(['[META]', 'Executed By',
@@ -307,7 +306,6 @@ function backupCurrentSettings() {
   backupSheet.appendRow(['', '', '', '', '', '', '']);
 
   try {
-    // ── MX VLAN Settings ──────────────────────────
     backupSheet.appendRow([
       '[MX VLAN]', 'VLAN ID', 'VLAN Name', 'Subnet', 'MX IP Address', 'DNS', ''
     ]);
@@ -331,12 +329,12 @@ function backupCurrentSettings() {
 
     backupSheet.appendRow(['', '', '', '', '', '', '']);
 
-    // ── MR SSID Settings ──────────────────────────
+    // ── MR SSID Settings (including useVlanTagging) ───
     backupSheet.appendRow([
       '[MR SSID]', 'SSID Number', 'SSID Name', 'Enabled', 'Auth Mode',
-      'VLAN ID', 'IP Mode'
+      'VLAN ID', 'IP Mode', 'VLAN Tagging' // ✅ VLAN Tagging state saved
     ]);
-    backupSheet.getRange(backupSheet.getLastRow(), 1, 1, 7)
+    backupSheet.getRange(backupSheet.getLastRow(), 1, 1, 8)
       .setBackground('#FCE5CD').setFontWeight('bold');
 
     const ssids = merakiRequest(
@@ -349,8 +347,9 @@ function backupCurrentSettings() {
         ssid.name,
         ssid.enabled,
         ssid.authMode,
-        ssid.defaultVlanId    || '',
-        ssid.ipAssignmentMode || ''
+        ssid.defaultVlanId    || '',   // Empty if no VLAN ID
+        ssid.ipAssignmentMode || '',
+        ssid.useVlanTagging   || false  // ✅ Save VLAN tagging state
       ]);
     });
 
@@ -370,7 +369,7 @@ function backupCurrentSettings() {
 }
 
 // ============================================================
-// ↩️  Rollback: Restore Settings from Backup Sheet
+// ↩️  Rollback: Restore Settings from Backup Sheet (Fixed)
 // ============================================================
 function rollbackSettings() {
 
@@ -461,8 +460,10 @@ function rollbackSettings() {
           `/v1/networks/${networkId}/appliance/vlans/${vlanId}`,
           payload, apiKey
         );
+        Logger.log(`✅ VLAN ${vlanId} rollback complete`);
         writeLog('Rollback MX VLAN', `VLAN ${vlanId} - ${vlanName}`, '✅ Success');
       } catch (e) {
+        Logger.log(`❌ VLAN ${vlanId} rollback error: ${e.message}`);
         writeLog('Rollback MX VLAN', `VLAN ${vlanId} - ${vlanName}`,
           `❌ Error: ${e.message}`);
         vlanErrors++;
@@ -470,17 +471,18 @@ function rollbackSettings() {
       Utilities.sleep(300);
     }
 
-    // ── MR SSID Rollback ──────────────────────────
+    // ── MR SSID Rollback (Fixed) ──────────────────
     if (section === '[MR SSID]'    &&
         row[1] !== 'SSID Number'   &&
         row[1] !== '') {
 
-      const ssidNumber = row[1];
-      const ssidName   = row[2];
-      const enabled    = row[3];
-      const authMode   = row[4];
-      const vlanId     = row[5];
-      const ipMode     = row[6];
+      const ssidNumber     = row[1];
+      const ssidName       = row[2];
+      const enabled        = row[3];
+      const authMode       = row[4];
+      const vlanId         = row[5];
+      const ipMode         = row[6];
+      const useVlanTagging = row[7]; // ✅ Get VLAN tagging state
 
       const payload = {
         name             : ssidName,
@@ -489,10 +491,18 @@ function rollbackSettings() {
         ipAssignmentMode : ipMode || 'Bridge mode'
       };
 
-      if (vlanId !== '' && vlanId !== null) {
+      // ── ✅ Fix: Explicitly set VLAN based on backup state ──
+      if (vlanId !== '' && vlanId !== null &&
+          useVlanTagging === true) {
+        // VLAN was configured: restore VLAN settings
         payload.useVlanTagging = true;
         payload.defaultVlanId  = Number(vlanId);
+      } else {
+        // VLAN was not configured: restore to no VLAN state
+        payload.useVlanTagging = false;
+        payload.defaultVlanId  = null;
       }
+      // ── Fix ends here ─────────────────────────────────────
 
       try {
         merakiRequest(
@@ -500,9 +510,13 @@ function rollbackSettings() {
           `/v1/networks/${networkId}/wireless/ssids/${ssidNumber}`,
           payload, apiKey
         );
-        writeLog('Rollback MR SSID', `SSID ${ssidNumber} - ${ssidName}`, '✅ Success');
+        Logger.log(`✅ SSID ${ssidNumber} rollback complete`);
+        writeLog('Rollback MR SSID',
+          `SSID ${ssidNumber} - ${ssidName}`, '✅ Success');
       } catch (e) {
-        writeLog('Rollback MR SSID', `SSID ${ssidNumber} - ${ssidName}`,
+        Logger.log(`❌ SSID ${ssidNumber} rollback error: ${e.message}`);
+        writeLog('Rollback MR SSID',
+          `SSID ${ssidNumber} - ${ssidName}`,
           `❌ Error: ${e.message}`);
         ssidErrors++;
       }
@@ -590,10 +604,8 @@ function applyVlanSettings() {
     if (vlanId === '' || vlanId === null) continue;
 
     const payload = {
-      id          : Number(vlanId),
-      name        : vlanName,
-      subnet      : subnet,
-      applianceIp : mxIp
+      id: Number(vlanId), name: vlanName,
+      subnet: subnet, applianceIp: mxIp
     };
     if (dns !== '' && dns !== null) payload.dnsNameservers = dns;
 
@@ -676,9 +688,8 @@ function applyMsSettings() {
     if (portId === '' || portId === null) continue;
 
     const payload = {
-      name       : portName,
-      type       : portType,
-      poeEnabled : poeEnabled === true || poeEnabled === 'TRUE'
+      name: portName, type: portType,
+      poeEnabled: poeEnabled === true || poeEnabled === 'TRUE'
     };
     if (portType === 'trunk') {
       payload.vlan         = Number(nativeVlan);
@@ -789,10 +800,15 @@ function applySSIDSettings() {
         }]; break;
     }
 
+    // ✅ Explicitly set VLAN based on input
     if (vlanId !== '' && vlanId !== null) {
       payload.useVlanTagging = true;
       payload.defaultVlanId  = Number(vlanId);
+    } else {
+      payload.useVlanTagging = false;
+      payload.defaultVlanId  = null;
     }
+
     if (bandwidthKbps !== '' && bandwidthKbps !== null) {
       payload.perClientBandwidthLimitUp   = Number(bandwidthKbps);
       payload.perClientBandwidthLimitDown = Number(bandwidthKbps);
@@ -887,12 +903,10 @@ function applyRFSettings() {
     const created = merakiRequest(
       'GET',
       `/v1/networks/${networkId}/wireless/rfProfiles/${result.id}`,
-      null,
-      apiKey
+      null, apiKey
     );
 
     const rfDiffs = [];
-
     if (created.twoFourGhzSettings.maxPower !== payload.twoFourGhzSettings.maxPower) {
       rfDiffs.push(
         `2.4GHz maxPower: Expected "${payload.twoFourGhzSettings.maxPower}"` +
@@ -930,7 +944,6 @@ function applyRFSettings() {
     SpreadsheetApp.getUi().alert(
       `✅ RF Profile settings completed!\nProfile ID: ${result.id}`
     );
-
   } catch (e) {
     Logger.log(`❌ RF Profile Error: ${e.message}`);
     updateStatus(sheet, 2, 4, `❌ Error: ${e.message}`);
@@ -948,10 +961,10 @@ function applyAllSettings() {
     '⚠️ Confirmation',
     'Apply all settings to all devices.\n\n' +
     'Execution Order:\n' +
-    'Step 1：🌐 MX VLAN Settings (VLAN 10, 20, 30)\n' +
-    'Step 2：🔌 MS Trunk Port Settings\n' +
-    'Step 3：📶 MR SSID Settings (with diff check)\n' +
-    'Step 4：📡 RF Profile Settings (with diff check)\n\n' +
+    'Step 1: 🌐 MX VLAN Settings (VLAN 10, 20, 30)\n' +
+    'Step 2: 🔌 MS Trunk Port Settings\n' +
+    'Step 3: 📶 MR SSID Settings (with diff check)\n' +
+    'Step 4: 📡 RF Profile Settings (with diff check)\n\n' +
     'Proceed?'
   )) {
     SpreadsheetApp.getUi().alert('❌ Cancelled.');
@@ -1150,16 +1163,21 @@ function applySSIDSettingsWithoutConfirm() {
         }]; break;
       case 'WPA3 Enterprise':
         payload.authMode = '8021x-radius'; payload.encryptionMode = 'wpa-eap';
-        payload.wpaEncryptionMode = 'WPA3  192-bit Security';
+        payload.wpaEncryptionMode = 'WPA3 192-bit Security';
         payload.radiusServers = [{
           host: radiusIP, port: Number(radiusPort), secret: radiusSecret
         }]; break;
     }
 
+    // ✅ Explicitly set VLAN based on input
     if (vlanId !== '' && vlanId !== null) {
       payload.useVlanTagging = true;
       payload.defaultVlanId  = Number(vlanId);
+    } else {
+      payload.useVlanTagging = false;
+      payload.defaultVlanId  = null;
     }
+
     if (bandwidthKbps !== '' && bandwidthKbps !== null) {
       payload.perClientBandwidthLimitUp   = Number(bandwidthKbps);
       payload.perClientBandwidthLimitDown = Number(bandwidthKbps);
@@ -1233,8 +1251,7 @@ function applyRFSettingsWithoutConfirm() {
     const created = merakiRequest(
       'GET',
       `/v1/networks/${networkId}/wireless/rfProfiles/${result.id}`,
-      null,
-      apiKey
+      null, apiKey
     );
 
     const rfDiffs = [];
