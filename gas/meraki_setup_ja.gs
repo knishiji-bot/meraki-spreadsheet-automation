@@ -1,7 +1,7 @@
 // ============================================================
 // Cisco Meraki 初期設定デモ - Google Apps Script
 // MX VLAN + MS Trunk + MR SSID + RF Profile 統合版
-// Logヘッダー・全差分チェック・RF一括反映対応
+// ロールバック VLAN修正版
 // ============================================================
 
 // ── 定数 ──────────────────────────────────────────────────
@@ -89,29 +89,25 @@ function ensureLogHeader() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   let sheet   = ss.getSheetByName('Log');
 
-  // ── Logシートが存在しない場合は新規作成 ──────────
   if (!sheet) {
     sheet = ss.insertSheet('Log');
   }
 
-  // ── 1行目が空の場合のみヘッダーを追加 ────────────
   const firstCell = sheet.getRange(1, 1).getValue();
   if (firstCell === '' || firstCell === null) {
     sheet.getRange(1, 1, 1, 5).setValues([[
       '実行日時', '実行者', '実行内容', '対象', '結果'
     ]]);
-    // ── ヘッダー行のスタイル設定 ───────────────────
     sheet.getRange(1, 1, 1, 5)
       .setBackground('#4A86E8')
       .setFontColor('#FFFFFF')
       .setFontWeight('bold');
 
-    // ── 列幅の自動調整 ────────────────────────────
-    sheet.setColumnWidth(1, 160); // 実行日時
-    sheet.setColumnWidth(2, 200); // 実行者
-    sheet.setColumnWidth(3, 160); // 実行内容
-    sheet.setColumnWidth(4, 220); // 対象
-    sheet.setColumnWidth(5, 300); // 結果
+    sheet.setColumnWidth(1, 160);
+    sheet.setColumnWidth(2, 200);
+    sheet.setColumnWidth(3, 160);
+    sheet.setColumnWidth(4, 220);
+    sheet.setColumnWidth(5, 300);
   }
 
   return sheet;
@@ -132,7 +128,7 @@ function writeLog(action, target, status) {
 }
 
 // ============================================================
-// MX VLAN 差分チェック関数（新規追加）
+// MX VLAN 差分チェック関数
 // ============================================================
 function checkVlanDiff(sheet, rowIndex, vlanId, payload, apiKey, networkId) {
 
@@ -141,24 +137,17 @@ function checkVlanDiff(sheet, rowIndex, vlanId, payload, apiKey, networkId) {
 
   const diffs = [];
 
-  // VLAN名
   if (current.name !== payload.name) {
     diffs.push(`name: 期待値「${payload.name}」→ 実際「${current.name}」`);
   }
-
-  // サブネット
   if (current.subnet !== payload.subnet) {
     diffs.push(`subnet: 期待値「${payload.subnet}」→ 実際「${current.subnet}」`);
   }
-
-  // MX IPアドレス
   if (current.applianceIp !== payload.applianceIp) {
     diffs.push(
       `applianceIp: 期待値「${payload.applianceIp}」→ 実際「${current.applianceIp}」`
     );
   }
-
-  // DNS
   if (payload.dnsNameservers &&
       current.dnsNameservers !== payload.dnsNameservers) {
     diffs.push(
@@ -166,7 +155,6 @@ function checkVlanDiff(sheet, rowIndex, vlanId, payload, apiKey, networkId) {
     );
   }
 
-  // ── 結果を H列に書き込み ────────────────────────
   if (diffs.length === 0) {
     sheet.getRange(rowIndex, 8).setValue('✅ 一致');
   } else {
@@ -177,7 +165,7 @@ function checkVlanDiff(sheet, rowIndex, vlanId, payload, apiKey, networkId) {
 }
 
 // ============================================================
-// MS ポート 差分チェック関数（新規追加）
+// MS ポート 差分チェック関数
 // ============================================================
 function checkMsDiff(sheet, rowIndex, serial, portId, payload, apiKey) {
 
@@ -186,37 +174,27 @@ function checkMsDiff(sheet, rowIndex, serial, portId, payload, apiKey) {
 
   const diffs = [];
 
-  // ポート名
   if (current.name !== payload.name) {
     diffs.push(`name: 期待値「${payload.name}」→ 実際「${current.name}」`);
   }
-
-  // ポートタイプ
   if (current.type !== payload.type) {
     diffs.push(`type: 期待値「${payload.type}」→ 実際「${current.type}」`);
   }
-
-  // ネイティブVLAN
   if (payload.type === 'trunk' && current.vlan !== payload.vlan) {
     diffs.push(`nativeVlan: 期待値「${payload.vlan}」→ 実際「${current.vlan}」`);
   }
-
-  // 許可VLAN
   if (payload.type === 'trunk' &&
       String(current.allowedVlans) !== String(payload.allowedVlans)) {
     diffs.push(
       `allowedVlans: 期待値「${payload.allowedVlans}」→ 実際「${current.allowedVlans}」`
     );
   }
-
-  // PoE
   if (current.poeEnabled !== payload.poeEnabled) {
     diffs.push(
       `poeEnabled: 期待値「${payload.poeEnabled}」→ 実際「${current.poeEnabled}」`
     );
   }
 
-  // ── 結果を H列に書き込み ────────────────────────
   if (diffs.length === 0) {
     sheet.getRange(rowIndex, 8).setValue('✅ 一致');
   } else {
@@ -236,22 +214,16 @@ function checkDiff(sheet, rowIndex, ssidNumber, payload, apiKey, networkId) {
 
   const diffs = [];
 
-  // SSID名
   if (current.name !== payload.name) {
     diffs.push(`name: 期待値「${payload.name}」→ 実際「${current.name}」`);
   }
-
-  // 有効/無効
   if (current.enabled !== payload.enabled) {
     diffs.push(`enabled: 期待値「${payload.enabled}」→ 実際「${current.enabled}」`);
   }
-
-  // 認証方式
   if (current.authMode !== payload.authMode) {
     diffs.push(`authMode: 期待値「${payload.authMode}」→ 実際「${current.authMode}」`);
   }
 
-  // VLAN ID
   if (payload.useVlanTagging) {
     if (payload.ipAssignmentMode === 'NAT mode' ||
         payload.ipAssignmentMode === 'Bridge mode') {
@@ -276,7 +248,6 @@ function checkDiff(sheet, rowIndex, ssidNumber, payload, apiKey, networkId) {
     }
   }
 
-  // IPモード
   if (current.ipAssignmentMode !== payload.ipAssignmentMode) {
     diffs.push(
       `ipAssignmentMode: 期待値「${payload.ipAssignmentMode}」` +
@@ -284,7 +255,6 @@ function checkDiff(sheet, rowIndex, ssidNumber, payload, apiKey, networkId) {
     );
   }
 
-  // ── 結果をN列に書き込み ──────────────────────────
   if (diffs.length === 0) {
     sheet.getRange(rowIndex, 14).setValue('✅ 一致');
   } else {
@@ -327,7 +297,6 @@ function backupCurrentSettings() {
     .setFontColor('#FFFFFF')
     .setFontWeight('bold');
 
-  // ── META情報 ──────────────────────────────────
   backupSheet.appendRow(['【META】', 'バックアップ日時',
     Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'), '', '', '', '']);
   backupSheet.appendRow(['【META】', '実行者',
@@ -336,7 +305,6 @@ function backupCurrentSettings() {
   backupSheet.appendRow(['', '', '', '', '', '', '']);
 
   try {
-    // ── MX VLAN設定 ───────────────────────────────
     backupSheet.appendRow([
       '【MX VLAN】', 'VLAN ID', 'VLAN名', 'サブネット', 'MX IPアドレス', 'DNS', ''
     ]);
@@ -360,12 +328,12 @@ function backupCurrentSettings() {
 
     backupSheet.appendRow(['', '', '', '', '', '', '']);
 
-    // ── MR SSID設定 ───────────────────────────────
+    // ── MR SSID設定（useVlanTaggingも保存）────────
     backupSheet.appendRow([
       '【MR SSID】', 'SSID番号', 'SSID名', '有効/無効', '認証方式',
-      'VLAN ID', 'IPモード'
+      'VLAN ID', 'IPモード', 'VLANタギング'
     ]);
-    backupSheet.getRange(backupSheet.getLastRow(), 1, 1, 7)
+    backupSheet.getRange(backupSheet.getLastRow(), 1, 1, 8)
       .setBackground('#FCE5CD').setFontWeight('bold');
 
     const ssids = merakiRequest(
@@ -378,8 +346,9 @@ function backupCurrentSettings() {
         ssid.name,
         ssid.enabled,
         ssid.authMode,
-        ssid.defaultVlanId    || '',
-        ssid.ipAssignmentMode || ''
+        ssid.defaultVlanId    || '',   // VLAN IDが空の場合は空白
+        ssid.ipAssignmentMode || '',
+        ssid.useVlanTagging   || false  // ✅ VLANタギング状態を保存
       ]);
     });
 
@@ -399,7 +368,7 @@ function backupCurrentSettings() {
 }
 
 // ============================================================
-// ↩️  ロールバック：バックアップシートから設定を復元
+// ↩️  ロールバック：バックアップシートから設定を復元（修正済み）
 // ============================================================
 function rollbackSettings() {
 
@@ -490,8 +459,10 @@ function rollbackSettings() {
           `/v1/networks/${networkId}/appliance/vlans/${vlanId}`,
           payload, apiKey
         );
+        Logger.log(`✅ VLAN ${vlanId} ロールバック完了`);
         writeLog('ロールバック MX VLAN', `VLAN ${vlanId} - ${vlanName}`, '✅ 成功');
       } catch (e) {
+        Logger.log(`❌ VLAN ${vlanId} ロールバックエラー: ${e.message}`);
         writeLog('ロールバック MX VLAN', `VLAN ${vlanId} - ${vlanName}`,
           `❌ エラー: ${e.message}`);
         vlanErrors++;
@@ -499,17 +470,18 @@ function rollbackSettings() {
       Utilities.sleep(300);
     }
 
-    // ── MR SSID ロールバック ───────────────────────
+    // ── MR SSID ロールバック（修正済み）───────────────
     if (section === '【MR SSID】' &&
         row[1] !== 'SSID番号'    &&
         row[1] !== '') {
 
-      const ssidNumber = row[1];
-      const ssidName   = row[2];
-      const enabled    = row[3];
-      const authMode   = row[4];
-      const vlanId     = row[5];
-      const ipMode     = row[6];
+      const ssidNumber    = row[1];
+      const ssidName      = row[2];
+      const enabled       = row[3];
+      const authMode      = row[4];
+      const vlanId        = row[5];
+      const ipMode        = row[6];
+      const useVlanTagging = row[7]; // ✅ VLANタギング状態を取得
 
       const payload = {
         name             : ssidName,
@@ -518,10 +490,18 @@ function rollbackSettings() {
         ipAssignmentMode : ipMode || 'Bridge mode'
       };
 
-      if (vlanId !== '' && vlanId !== null) {
+      // ── ✅ 修正：VLANの有無に応じて明示的に設定 ────
+      if (vlanId !== '' && vlanId !== null &&
+          useVlanTagging === true) {
+        // VLANが設定されていた場合：VLANを復元
         payload.useVlanTagging = true;
         payload.defaultVlanId  = Number(vlanId);
+      } else {
+        // VLANが設定されていなかった場合：VLANなしに戻す
+        payload.useVlanTagging = false;
+        payload.defaultVlanId  = null;
       }
+      // ── 修正ここまで ─────────────────────────────
 
       try {
         merakiRequest(
@@ -529,9 +509,13 @@ function rollbackSettings() {
           `/v1/networks/${networkId}/wireless/ssids/${ssidNumber}`,
           payload, apiKey
         );
-        writeLog('ロールバック MR SSID', `SSID ${ssidNumber} - ${ssidName}`, '✅ 成功');
+        Logger.log(`✅ SSID ${ssidNumber} ロールバック完了`);
+        writeLog('ロールバック MR SSID',
+          `SSID ${ssidNumber} - ${ssidName}`, '✅ 成功');
       } catch (e) {
-        writeLog('ロールバック MR SSID', `SSID ${ssidNumber} - ${ssidName}`,
+        Logger.log(`❌ SSID ${ssidNumber} ロールバックエラー: ${e.message}`);
+        writeLog('ロールバック MR SSID',
+          `SSID ${ssidNumber} - ${ssidName}`,
           `❌ エラー: ${e.message}`);
         ssidErrors++;
       }
@@ -575,7 +559,7 @@ function enableMxVlans(apiKey, networkId) {
 }
 
 // ============================================================
-// MX：VLAN設定を反映（差分チェック追加）
+// MX：VLAN設定を反映
 // ============================================================
 function applyVlanSettings() {
 
@@ -619,10 +603,8 @@ function applyVlanSettings() {
     if (vlanId === '' || vlanId === null) continue;
 
     const payload = {
-      id          : Number(vlanId),
-      name        : vlanName,
-      subnet      : subnet,
-      applianceIp : mxIp
+      id: Number(vlanId), name: vlanName,
+      subnet: subnet, applianceIp: mxIp
     };
     if (dns !== '' && dns !== null) payload.dnsNameservers = dns;
 
@@ -630,25 +612,23 @@ function applyVlanSettings() {
       if (existingIds.includes(Number(vlanId))) {
         merakiRequest('PUT',
           `/v1/networks/${networkId}/appliance/vlans/${vlanId}`, payload, apiKey);
+        Logger.log(`✅ VLAN ${vlanId} (${vlanName}) 更新完了`);
       } else {
         merakiRequest('POST',
           `/v1/networks/${networkId}/appliance/vlans`, payload, apiKey);
+        Logger.log(`✅ VLAN ${vlanId} (${vlanName}) 作成完了`);
       }
       updateStatus(sheet, i + 1, 7, '✅ 成功');
       writeLog('MX VLAN設定', `VLAN ${vlanId} - ${vlanName}`, '✅ 成功');
 
-      // ── MX VLAN 差分チェック（新規追加）──────────
       Utilities.sleep(500);
-      const diffs = checkVlanDiff(
-        sheet, i + 1, vlanId, payload, apiKey, networkId
-      );
+      const diffs = checkVlanDiff(sheet, i + 1, vlanId, payload, apiKey, networkId);
       if (diffs.length > 0) {
         writeLog('差分チェック MX VLAN', `VLAN ${vlanId} - ${vlanName}`,
           `⚠️ 不一致: ${diffs.join(' / ')}`);
       } else {
         writeLog('差分チェック MX VLAN', `VLAN ${vlanId} - ${vlanName}`, '✅ 一致');
       }
-
     } catch (e) {
       updateStatus(sheet, i + 1, 7, `❌ エラー: ${e.message}`);
       writeLog('MX VLAN設定', `VLAN ${vlanId} - ${vlanName}`, `❌ エラー: ${e.message}`);
@@ -660,7 +640,7 @@ function applyVlanSettings() {
 }
 
 // ============================================================
-// MS：スイッチポート（Trunk）設定を反映（差分チェック追加）
+// MS：スイッチポート（Trunk）設定を反映
 // ============================================================
 function applyMsSettings() {
 
@@ -706,9 +686,8 @@ function applyMsSettings() {
     if (portId === '' || portId === null) continue;
 
     const payload = {
-      name       : portName,
-      type       : portType,
-      poeEnabled : poeEnabled === true || poeEnabled === 'TRUE'
+      name: portName, type: portType,
+      poeEnabled: poeEnabled === true || poeEnabled === 'TRUE'
     };
     if (portType === 'trunk') {
       payload.vlan         = Number(nativeVlan);
@@ -722,20 +701,14 @@ function applyMsSettings() {
         updateStatus(sheet, i + 1, 7, '✅ 成功');
         writeLog('MSポート設定', `${sw.serial} ポート ${portId}`, '✅ 成功');
 
-        // ── MS ポート 差分チェック（新規追加）────────
         Utilities.sleep(500);
-        const diffs = checkMsDiff(
-          sheet, i + 1, sw.serial, portId, payload, apiKey
-        );
+        const diffs = checkMsDiff(sheet, i + 1, sw.serial, portId, payload, apiKey);
         if (diffs.length > 0) {
-          writeLog('差分チェック MSポート',
-            `${sw.serial} ポート ${portId}`,
+          writeLog('差分チェック MSポート', `${sw.serial} ポート ${portId}`,
             `⚠️ 不一致: ${diffs.join(' / ')}`);
         } else {
-          writeLog('差分チェック MSポート',
-            `${sw.serial} ポート ${portId}`, '✅ 一致');
+          writeLog('差分チェック MSポート', `${sw.serial} ポート ${portId}`, '✅ 一致');
         }
-
       } catch (e) {
         updateStatus(sheet, i + 1, 7, `❌ エラー: ${e.message}`);
         writeLog('MSポート設定', `${sw.serial} ポート ${portId}`,
@@ -828,7 +801,11 @@ function applySSIDSettings() {
     if (vlanId !== '' && vlanId !== null) {
       payload.useVlanTagging = true;
       payload.defaultVlanId  = Number(vlanId);
+    } else {
+      payload.useVlanTagging = false;
+      payload.defaultVlanId  = null;
     }
+
     if (bandwidthKbps !== '' && bandwidthKbps !== null) {
       payload.perClientBandwidthLimitUp   = Number(bandwidthKbps);
       payload.perClientBandwidthLimitDown = Number(bandwidthKbps);
@@ -863,7 +840,7 @@ function applySSIDSettings() {
 }
 
 // ============================================================
-// RF Profile 設定を反映（差分チェック追加）
+// RF Profile 設定を反映
 // ============================================================
 function applyRFSettings() {
 
@@ -911,50 +888,39 @@ function applyRFSettings() {
   };
 
   try {
-    // ── RF Profile 新規作成 ───────────────────────
     const endpoint = `/v1/networks/${networkId}/wireless/rfProfiles`;
     const result   = merakiRequest('POST', endpoint, payload, apiKey);
     Logger.log(`✅ RF Profile作成完了: ID = ${result.id}`);
     updateStatus(sheet, 2, 4, '✅ 成功');
     writeLog('RF Profile作成', 'Demo-RF-Profile', `✅ 成功 ID: ${result.id}`);
 
-    // ── RF Profile 差分チェック（新規追加）──────────
     Utilities.sleep(500);
     const created = merakiRequest(
       'GET',
       `/v1/networks/${networkId}/wireless/rfProfiles/${result.id}`,
-      null,
-      apiKey
+      null, apiKey
     );
 
     const rfDiffs = [];
-
-    // 2.4GHz チェック
-    if (created.twoFourGhzSettings.maxPower !==
-        payload.twoFourGhzSettings.maxPower) {
+    if (created.twoFourGhzSettings.maxPower !== payload.twoFourGhzSettings.maxPower) {
       rfDiffs.push(
         `2.4GHz maxPower: 期待値「${payload.twoFourGhzSettings.maxPower}」` +
         `→ 実際「${created.twoFourGhzSettings.maxPower}」`
       );
     }
-    if (created.twoFourGhzSettings.minPower !==
-        payload.twoFourGhzSettings.minPower) {
+    if (created.twoFourGhzSettings.minPower !== payload.twoFourGhzSettings.minPower) {
       rfDiffs.push(
         `2.4GHz minPower: 期待値「${payload.twoFourGhzSettings.minPower}」` +
         `→ 実際「${created.twoFourGhzSettings.minPower}」`
       );
     }
-
-    // 5GHz チェック
-    if (created.fiveGhzSettings.maxPower !==
-        payload.fiveGhzSettings.maxPower) {
+    if (created.fiveGhzSettings.maxPower !== payload.fiveGhzSettings.maxPower) {
       rfDiffs.push(
         `5GHz maxPower: 期待値「${payload.fiveGhzSettings.maxPower}」` +
         `→ 実際「${created.fiveGhzSettings.maxPower}」`
       );
     }
-    if (created.fiveGhzSettings.minPower !==
-        payload.fiveGhzSettings.minPower) {
+    if (created.fiveGhzSettings.minPower !== payload.fiveGhzSettings.minPower) {
       rfDiffs.push(
         `5GHz minPower: 期待値「${payload.fiveGhzSettings.minPower}」` +
         `→ 実際「${created.fiveGhzSettings.minPower}」`
@@ -973,7 +939,6 @@ function applyRFSettings() {
     SpreadsheetApp.getUi().alert(
       `✅ RF Profile設定完了！\nProfile ID: ${result.id}`
     );
-
   } catch (e) {
     Logger.log(`❌ RF Profile エラー: ${e.message}`);
     updateStatus(sheet, 2, 4, `❌ エラー: ${e.message}`);
@@ -983,7 +948,7 @@ function applyRFSettings() {
 }
 
 // ============================================================
-// 全設定を一括反映（MX → MS → MR → RF の順番で実行）
+// 全設定を一括反映（MX → MS → MR → RF）
 // ============================================================
 function applyAllSettings() {
 
@@ -1003,22 +968,18 @@ function applyAllSettings() {
 
   const ui = SpreadsheetApp.getUi();
 
-  // ── Step 1：MX VLAN設定 ───────────────────────
   ui.alert('⏳ Step 1/4：MX VLAN設定を反映中...');
   applyVlanSettingsWithoutConfirm();
   Utilities.sleep(1000);
 
-  // ── Step 2：MS トランク設定 ───────────────────
   ui.alert('⏳ Step 2/4：MSトランク設定を反映中...');
   applyMsSettingsWithoutConfirm();
   Utilities.sleep(1000);
 
-  // ── Step 3：MR SSID設定 ───────────────────────
   ui.alert('⏳ Step 3/4：MR SSID設定を反映中...');
   applySSIDSettingsWithoutConfirm();
   Utilities.sleep(1000);
 
-  // ── Step 4：RF Profile設定 ────────────────────
   ui.alert('⏳ Step 4/4：RF Profile設定を反映中...');
   applyRFSettingsWithoutConfirm();
 
@@ -1202,7 +1163,11 @@ function applySSIDSettingsWithoutConfirm() {
     if (vlanId !== '' && vlanId !== null) {
       payload.useVlanTagging = true;
       payload.defaultVlanId  = Number(vlanId);
+    } else {
+      payload.useVlanTagging = false;
+      payload.defaultVlanId  = null;
     }
+
     if (bandwidthKbps !== '' && bandwidthKbps !== null) {
       payload.perClientBandwidthLimitUp   = Number(bandwidthKbps);
       payload.perClientBandwidthLimitDown = Number(bandwidthKbps);
@@ -1276,8 +1241,7 @@ function applyRFSettingsWithoutConfirm() {
     const created = merakiRequest(
       'GET',
       `/v1/networks/${networkId}/wireless/rfProfiles/${result.id}`,
-      null,
-      apiKey
+      null, apiKey
     );
 
     const rfDiffs = [];
